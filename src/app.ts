@@ -37,12 +37,14 @@ export const initApp = async (
 ): Promise<App> => {
     const app = express();
     app.set('trust proxy', true);
+
     app.use(
         express.raw({
             limit: '1kb',
             type: (req) => req.headers['content-type'] !== APPLICATION_JSON,
         })
     );
+
     app.use(
         express.json({
             limit: '50kb',
@@ -54,6 +56,7 @@ export const initApp = async (
             },
         })
     );
+
     app.use((req, res, next) => {
         const start = new Date().getTime();
         const ac = new AbortController();
@@ -61,7 +64,6 @@ export const initApp = async (
         res.on('close', ac.abort.bind(ac));
 
         const requestId = req.headers['x-request-id']?.[0] || randomUUID();
-
         const l = logger.child({ requestId });
 
         let bytesRead = 0;
@@ -72,16 +74,16 @@ export const initApp = async (
         let bytesWritten = 0;
         const oldWrite = res.write;
         const oldEnd = res.end;
+
         res.write = function (chunk: Buffer | string, ...rest) {
             if (chunk) bytesWritten += chunk.length;
-
             // @ts-ignore
             return oldWrite.apply(res, [chunk, ...rest]);
         };
+
         // @ts-ignore
         res.end = function (chunk?: Buffer | string, ...rest) {
             if (chunk) bytesWritten += chunk.length;
-
             // @ts-ignore
             return oldEnd.apply(res, [chunk, ...rest]);
         };
@@ -104,8 +106,13 @@ export const initApp = async (
 
         asl.run({ logger: l, requestId }, () => next());
     });
+
     app.use(helmet());
     app.use(compression());
+
+    app.get("/", (req, res) => {
+        res.send("Express server is live and working!");
+    });
 
     app.get(config.healthCheckEndpoint, (req, res) => {
         res.sendStatus(200);
@@ -129,16 +136,13 @@ export const initApp = async (
         LARGE_JSON_PATH,
         express.json({ limit: '5mb', type: APPLICATION_JSON }),
         (req, res) => {
-            // TODO: handle large json payload
             res.end();
         }
     );
 
     app.get('/abort-signal-propagation', async (req, res) => {
         for (let i = 0; i < 10; i++) {
-            // simulate some work
             await new Promise((r) => setTimeout(r, 25));
-
             if (req.abortSignal.aborted) throw new Error('aborted');
         }
 
@@ -148,11 +152,11 @@ export const initApp = async (
                 signal: req.abortSignal,
             }
         );
+
         if (usersRes.status !== 200) {
-            throw new Error(
-                `unexpected non-200 status code ${usersRes.status}`
-            );
+            throw new Error(`unexpected non-200 status code ${usersRes.status}`);
         }
+
         const users = await usersRes.json();
         res.json(users);
     });
@@ -162,14 +166,13 @@ export const initApp = async (
 
         if (res.headersSent) return;
 
-        res.status(500);
-        res.json({ msg: 'Something went wrong' });
+        res.status(500).json({ msg: 'Something went wrong' });
     });
 
     return {
         requestListener: app,
         shutdown: async () => {
-            // add any cleanup code here including database/redis disconnecting and background job shutdown
+            // Optional: clean up DB connections, queues, etc.
         },
     };
 };
